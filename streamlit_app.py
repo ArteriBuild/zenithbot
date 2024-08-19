@@ -1,5 +1,5 @@
 import streamlit as st
-import PyPDF2
+import pdfplumber
 from transformers import pipeline
 import io
 import re
