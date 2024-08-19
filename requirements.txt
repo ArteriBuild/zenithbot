@@ -1,5 +1,5 @@
 streamlit==1.10.0
-pdfplumber
+pdfplumber==0.7.4
 transformers
 torch
 numpy
