@@ -1,9 +1,8 @@
 import streamlit as st
 import pdfplumber
+import os
 from transformers import pipeline
 import io
-import re
-from collections import defaultdict
 
 # Initialize the question-answering model
 @st.cache_resource
@@ -13,90 +12,57 @@ def load_qa_model():
 qa_model = load_qa_model()
 
 # Function to extract text from PDF
-def extract_text_from_pdf(pdf_file):
-       text = ""
-       with pdfplumber.open(io.BytesIO(pdf_file.read())) as pdf:
-           for page in pdf.pages:
-               text += page.extract_text() + "\n"
-       return text
+def extract_text_from_pdf(pdf_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        return "\n".join(page.extract_text() for page in pdf.pages)
 
-# Function to process catalogs
-def process_catalogs(catalogs):
-    catalog_data = {}
-    for catalog in catalogs:
-        text = extract_text_from_pdf(catalog)
-        catalog_data[catalog.name] = text
-    return catalog_data
+# Function to load pre-stored catalogs
+@st.cache_data
+def load_catalogs():
+    catalogs = {}
+    catalog_dir = "catalogs"  # Directory where your PDF catalogs are stored
+    for filename in os.listdir(catalog_dir):
+        if filename.endswith(".pdf"):
+            file_path = os.path.join(catalog_dir, filename)
+            catalogs[filename] = extract_text_from_pdf(file_path)
+    return catalogs
 
-# Function to extract furniture items from text
-def extract_furniture_items(text):
-    # This is a simplified extraction. In a real scenario, you'd want a more robust method.
-    items = re.findall(r'\b(\w+(?:\s+\w+){0,3}(?:chair|table|desk|sofa|cabinet|shelf))\b', text.lower())
-    return list(set(items))  # Remove duplicates
+# Load pre-stored catalogs
+catalogs = load_catalogs()
 
 # Function to generate recommendations
-def recommend_furniture(brief_text, additional_details, catalog_data):
-    context = " ".join(catalog_data.values())
-    query = brief_text + " " + additional_details
-    
-    requested_items = extract_furniture_items(query)
-    
-    recommendations = defaultdict(list)
-    missing_items = []
-    
-    for item in requested_items:
-        result = qa_model(question=f"What {item} is available?", context=context)
-        if result['score'] > 0.1:  # Adjust this threshold as needed
-            recommendations[item].append(result['answer'])
-        else:
-            missing_items.append(item)
-    
-    return dict(recommendations), missing_items
+def recommend_furniture(query, catalogs):
+    context = " ".join(catalogs.values())
+    result = qa_model(question=query, context=context)
+    return result['answer']
 
 # Streamlit UI
 st.title("Furniture Recommendation App")
 
-# File uploaders
-uploaded_catalogs = st.file_uploader("Upload product catalogs (PDFs)", type="pdf", accept_multiple_files=True)
+# Display available catalogs
+st.subheader("Available Catalogs:")
+for catalog_name in catalogs.keys():
+    st.write(f"- {catalog_name}")
+
+# File uploader for project brief
 uploaded_brief = st.file_uploader("Upload project brief (PDF)", type="pdf")
 
-# Text input for additional details
-additional_details = st.text_area("Additional project details")
+# Text input for additional project details
+additional_details = st.text_area("Additional project details or specific requirements")
 
 if st.button("Generate Recommendations"):
-    if uploaded_catalogs and uploaded_brief:
-        with st.spinner("Processing..."):
-            # Process catalogs
-            catalog_data = process_catalogs(uploaded_catalogs)
-            
-            # Process brief
-            brief_text = extract_text_from_pdf(uploaded_brief)
-            
-            # Generate recommendations
-            recommendations, missing_items = recommend_furniture(brief_text, additional_details, catalog_data)
-            
-            # Display results
-            st.subheader("Recommendations:")
-            for item, recs in recommendations.items():
-                st.write(f"For {item}:")
-                for rec in recs:
-                    st.write(f"- {rec}")
-                st.write("")
-            
-            st.subheader("Items without good matches:")
-            for item in missing_items:
-                st.write(f"- {item}")
+    if uploaded_brief is not None:
+        brief_text = extract_text_from_pdf(uploaded_brief)
+        query = brief_text + " " + additional_details
+        
+        recommendations = recommend_furniture(query, catalogs)
+        
+        st.subheader("Recommendations:")
+        st.write(recommendations)
     else:
-        st.error("Please upload both catalogs and a project brief.")
+        st.error("Please upload a project brief.")
 
-# Add a section to display the contents of the uploaded files
-if st.checkbox("Show uploaded file contents"):
-    if uploaded_catalogs:
-        st.subheader("Catalog Contents:")
-        for catalog in uploaded_catalogs:
-            st.write(f"Contents of {catalog.name}:")
-            st.text(extract_text_from_pdf(catalog)[:1000] + "...")  # Display first 1000 characters
-    
-    if uploaded_brief:
-        st.subheader("Project Brief Contents:")
-        st.text(extract_text_from_pdf(uploaded_brief)[:1000] + "...")  # Display first 1000 characters
+# Option to view catalog contents (for demonstration purposes)
+if st.checkbox("Show catalog contents"):
+    selected_catalog = st.selectbox("Select a catalog to view:", list(catalogs.keys()))
+    st.text(catalogs[selected_catalog][:1000] + "...")  # Display first 1000 characters
