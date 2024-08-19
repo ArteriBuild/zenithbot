@@ -14,11 +14,11 @@ qa_model = load_qa_model()
 
 # Function to extract text from PDF
 def extract_text_from_pdf(pdf_file):
-    pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_file.read()))
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text() + "\n"
-    return text
+       text = ""
+       with pdfplumber.open(io.BytesIO(pdf_file.read())) as pdf:
+           for page in pdf.pages:
+               text += page.extract_text() + "\n"
+       return text
 
 # Function to process catalogs
 def process_catalogs(catalogs):
