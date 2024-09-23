@@ -9,14 +9,16 @@ def load_data():
     df = pd.read_excel('catalogs/furniture_catalog.xlsx')
     # Remove any unnamed columns
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    # Rename columns if they don't have names
+    df.columns = ['Document ID', 'Description'] if len(df.columns) == 2 else df.columns
     return df
 
 # Load the data
 df = load_data()
 
 def recommend_furniture(query):
-    # Combine all text columns for vectorization
-    df['combined_text'] = df.astype(str).agg(' '.join, axis=1)
+    # Combine Document ID and Description for vectorization
+    df['combined_text'] = df['Document ID'] + ' ' + df['Description'].fillna('')
     
     # Create a list of product descriptions
     descriptions = df['combined_text'].tolist()
@@ -52,9 +54,8 @@ if st.button("Generate Recommendations"):
         if not recommendations.empty:
             for _, rec in recommendations.iterrows():
                 st.write("**Product Details:**")
-                for col in rec.index:
-                    if col != 'combined_text':
-                        st.write(f"- {col}: {rec[col]}")
+                st.write(f"- Document ID: {rec['Document ID']}")
+                st.write(f"- Description: {rec['Description']}")
                 st.write("---")
         else:
             st.write("No specific recommendations found. Please try adjusting your project brief.")
