@@ -17,8 +17,8 @@ def load_data():
 df = load_data()
 
 def recommend_furniture(query):
-    # Combine Document ID and Description for vectorization
-    df['combined_text'] = df['Document ID'] + ' ' + df['Description'].fillna('')
+    # Convert all columns to string type and combine for vectorization
+    df['combined_text'] = df.apply(lambda row: ' '.join(str(val) for val in row if pd.notna(val)), axis=1)
     
     # Create a list of product descriptions
     descriptions = df['combined_text'].tolist()
@@ -54,8 +54,9 @@ if st.button("Generate Recommendations"):
         if not recommendations.empty:
             for _, rec in recommendations.iterrows():
                 st.write("**Product Details:**")
-                st.write(f"- Document ID: {rec['Document ID']}")
-                st.write(f"- Description: {rec['Description']}")
+                for col in rec.index:
+                    if col != 'combined_text':
+                        st.write(f"- {col}: {rec[col]}")
                 st.write("---")
         else:
             st.write("No specific recommendations found. Please try adjusting your project brief.")
