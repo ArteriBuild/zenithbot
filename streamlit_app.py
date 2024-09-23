@@ -49,10 +49,9 @@ if st.button("Generate Recommendations"):
         st.subheader("Recommendations:")
         if not recommendations.empty:
             for _, rec in recommendations.iterrows():
-                st.write(f"**Product:** {rec['Product Name']}")
-                st.write(f"**Price:** ${rec['Price']:.2f}")
-                st.write(f"**Dimensions:** {rec['Dimensions']}")
-                st.write(f"**Description:** {rec['Description']}")
+                for col in rec.index:
+                    if col != 'combined_text':
+                        st.write(f"**{col}:** {rec[col]}")
                 st.write("---")
         else:
             st.write("No specific recommendations found. Please try adjusting your project brief.")
@@ -61,3 +60,7 @@ if st.button("Generate Recommendations"):
 
 if st.checkbox("Show catalog contents"):
     st.dataframe(df)
+
+# Display column names for debugging
+st.subheader("Column Names in Excel File:")
+st.write(df.columns.tolist())
