@@ -1,123 +1,58 @@
 import streamlit as st
-import os
-import json
-import pdfplumber
 import pandas as pd
-import re
-from transformers import pipeline
-
-# Initialize the question-answering model
-@st.cache_resource
-def load_qa_model():
-    return pipeline("question-answering", model="distilbert-base-cased-distilled-squad")
-
-qa_model = load_qa_model()
-
-def extract_product_info(text):
-    product_info = {
-        "product_name": "",
-        "variation": "",
-        "price": "",
-        "specifications": ""
-    }
-    
-    lines = text.split('\n')
-    product_info["product_name"] = lines[0].strip()
-    
-    price_match = re.search(r'[\$£€]?\d+(?:[.,]\d{2})?', text)
-    if price_match:
-        product_info["price"] = price_match.group()
-    
-    dimensions_match = re.search(r'\d+(?:\.\d+)?[xX]\d+(?:\.\d+)?(?:[xX]\d+(?:\.\d+)?)?(?:\s*mm|\s*cm|\s*m)?', text)
-    if dimensions_match:
-        product_info["specifications"] = dimensions_match.group()
-    
-    other_info = ' '.join(lines[1:]).replace(product_info["price"], "").replace(product_info["specifications"], "").strip()
-    product_info["variation"] = other_info
-    
-    return product_info
-
-def extract_structured_data_from_pdf(pdf_path):
-    structured_data = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            tables = page.extract_tables()
-            for table in tables:
-                df = pd.DataFrame(table[1:], columns=table[0])
-                for _, row in df.iterrows():
-                    product_data = {
-                        "product_name": str(row.get(0, '')),
-                        "variation": str(row.get(1, '')),
-                        "price": str(row.get(2, '')),
-                        "specifications": str(row.get(3, ''))
-                    }
-                    structured_data.append(product_data)
-            
-            if not tables:
-                text = page.extract_text()
-                chunks = text.split('\n\n')
-                for chunk in chunks:
-                    if len(chunk.strip()) > 0:
-                        product_data = extract_product_info(chunk)
-                        structured_data.append(product_data)
-    
-    return structured_data
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 @st.cache_data
-def load_catalogs():
-    catalogs = {}
-    catalog_dir = "catalogs"
-    for filename in os.listdir(catalog_dir):
-        if filename.endswith(".pdf"):
-            file_path = os.path.join(catalog_dir, filename)
-            catalogs[filename] = extract_structured_data_from_pdf(file_path)
-    return catalogs
+def load_data():
+    # Adjust the file path as needed
+    df = pd.read_excel('catalogs/furniture_catalog.xlsx')
+    return df
 
-catalogs = load_catalogs()
+# Load the data
+df = load_data()
 
-def recommend_furniture(query, catalogs):
-    all_products = []
-    for catalog_data in catalogs.values():
-        all_products.extend(catalog_data)
+def recommend_furniture(query):
+    # Combine all text columns for vectorization
+    df['combined_text'] = df.astype(str).agg(' '.join, axis=1)
     
-    context = json.dumps(all_products)
+    # Create a list of product descriptions
+    descriptions = df['combined_text'].tolist()
     
-    # Generate multiple recommendations
-    recommendations = []
-    for _ in range(5):  # Try to get 5 recommendations
-        result = qa_model(question=query, context=context)
-        if result['answer'] not in recommendations:
-            recommendations.append(result['answer'])
+    # Add the query to the list of descriptions
+    descriptions.append(query)
     
-    # Match recommendations with product details
-    detailed_recommendations = []
-    for rec in recommendations:
-        for product in all_products:
-            if rec.lower() in product['product_name'].lower():
-                detailed_recommendations.append(product)
-                break
+    # Vectorize the descriptions
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(descriptions)
     
-    return detailed_recommendations
+    # Compute similarity between query and all products
+    query_vec = tfidf_matrix[-1]
+    cosine_similarities = cosine_similarity(query_vec, tfidf_matrix[:-1]).flatten()
+    
+    # Get top 5 most similar products
+    top_indices = cosine_similarities.argsort()[-5:][::-1]
+    
+    return df.iloc[top_indices]
 
 st.title("Furniture Recommendation App")
 
-st.subheader("Available Catalogs:")
-for catalog_name in catalogs.keys():
-    st.write(f"- {catalog_name}")
+st.subheader("Available Catalog:")
+st.write(f"Furniture catalog with {len(df)} items")
 
 project_brief = st.text_area("Enter your project brief and requirements", height=200)
 
 if st.button("Generate Recommendations"):
     if project_brief:
-        recommendations = recommend_furniture(project_brief, catalogs)
+        recommendations = recommend_furniture(project_brief)
         
         st.subheader("Recommendations:")
-        if recommendations:
-            for rec in recommendations:
-                st.write(f"**Product:** {rec['product_name']}")
-                st.write(f"**Price:** {rec['price']}")
-                st.write(f"**Variation:** {rec['variation']}")
-                st.write(f"**Specifications:** {rec['specifications']}")
+        if not recommendations.empty:
+            for _, rec in recommendations.iterrows():
+                st.write(f"**Product:** {rec['Product Name']}")
+                st.write(f"**Price:** ${rec['Price']:.2f}")
+                st.write(f"**Dimensions:** {rec['Dimensions']}")
+                st.write(f"**Description:** {rec['Description']}")
                 st.write("---")
         else:
             st.write("No specific recommendations found. Please try adjusting your project brief.")
@@ -125,5 +60,4 @@ if st.button("Generate Recommendations"):
         st.error("Please enter a project brief.")
 
 if st.checkbox("Show catalog contents"):
-    selected_catalog = st.selectbox("Select a catalog to view:", list(catalogs.keys()))
-    st.table(pd.DataFrame(catalogs[selected_catalog]))
+    st.dataframe(df)
