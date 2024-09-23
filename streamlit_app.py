@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import json
-import tabula
+from tabula import read_pdf as tabula_read_pdf
 import pandas as pd
 from transformers import pipeline
 
@@ -14,7 +14,7 @@ qa_model = load_qa_model()
 
 # Function to extract structured data from PDF using Tabula
 def extract_structured_data_from_pdf(pdf_path):
-    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
+    tables = tabula_read_pdf(pdf_path, pages='all', multiple_tables=True)
     structured_data = []
 
     for table in tables:
@@ -78,7 +78,7 @@ additional_details = st.text_area("Additional project details or specific requir
 if st.button("Generate Recommendations"):
     if uploaded_brief is not None:
         # Extract text from the uploaded brief
-        brief_tables = tabula.read_pdf(uploaded_brief, pages='all', multiple_tables=True)
+        brief_tables = tabula_read_pdf(uploaded_brief, pages='all', multiple_tables=True)
         brief_text = " ".join([table.to_string() for table in brief_tables])
         
         query = brief_text + " " + additional_details
