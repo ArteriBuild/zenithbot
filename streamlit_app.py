@@ -1,8 +1,9 @@
 import streamlit as st
 import os
 import json
-from tabula import read_pdf as tabula_read_pdf
+import pdfplumber
 import pandas as pd
+import re
 from transformers import pipeline
 
 # Initialize the question-answering model
@@ -12,29 +13,59 @@ def load_qa_model():
 
 qa_model = load_qa_model()
 
-# Function to extract structured data from PDF using Tabula
+def extract_product_info(text):
+    # This function tries to extract product information from a chunk of text
+    product_info = {
+        "product_name": "",
+        "variation": "",
+        "price": "",
+        "specifications": ""
+    }
+    
+    # Try to identify product name (assumes it's the first line or a line with larger font)
+    lines = text.split('\n')
+    product_info["product_name"] = lines[0].strip()
+    
+    # Try to identify price (assumes it's a number with currency symbol)
+    price_match = re.search(r'[\$£€]?\d+(?:[.,]\d{2})?', text)
+    if price_match:
+        product_info["price"] = price_match.group()
+    
+    # Assume everything else is either variation or specifications
+    other_info = ' '.join(lines[1:]).replace(product_info["price"], "").strip()
+    if len(other_info) > 50:  # If there's substantial text, treat it as specifications
+        product_info["specifications"] = other_info
+    else:
+        product_info["variation"] = other_info
+    
+    return product_info
+
 def extract_structured_data_from_pdf(pdf_path):
-    tables = tabula_read_pdf(pdf_path, pages='all', multiple_tables=True)
     structured_data = []
-
-    for table in tables:
-        for _, row in table.iterrows():
-            try:
-                product_name = row[0]
-                variation = row[1]
-                price = row[2]
-                specs = row[3]
-                
-                structured_data.append({
-                    "product_name": product_name,
-                    "variation": variation,
-                    "price": price,
-                    "specifications": specs
-                })
-            except:
-                # Skip rows that don't match the expected format
-                continue
-
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            # Try to extract tables
+            tables = page.extract_tables()
+            for table in tables:
+                df = pd.DataFrame(table[1:], columns=table[0])
+                for _, row in df.iterrows():
+                    product_data = {
+                        "product_name": str(row.get(0, '')),
+                        "variation": str(row.get(1, '')),
+                        "price": str(row.get(2, '')),
+                        "specifications": str(row.get(3, ''))
+                    }
+                    structured_data.append(product_data)
+            
+            # If no tables, try to extract text and parse it
+            if not tables:
+                text = page.extract_text()
+                chunks = text.split('\n\n')  # Assume double newline separates products
+                for chunk in chunks:
+                    if len(chunk.strip()) > 0:
+                        product_data = extract_product_info(chunk)
+                        structured_data.append(product_data)
+    
     return structured_data
 
 # Function to load and process catalogs
@@ -69,26 +100,22 @@ st.subheader("Available Catalogs:")
 for catalog_name in catalogs.keys():
     st.write(f"- {catalog_name}")
 
-# File uploader for project brief
-uploaded_brief = st.file_uploader("Upload project brief (PDF)", type="pdf")
+# Text input for project brief
+project_brief = st.text_area("Enter your project brief", height=200)
 
 # Text input for additional project details
 additional_details = st.text_area("Additional project details or specific requirements")
 
 if st.button("Generate Recommendations"):
-    if uploaded_brief is not None:
-        # Extract text from the uploaded brief
-        brief_tables = tabula_read_pdf(uploaded_brief, pages='all', multiple_tables=True)
-        brief_text = " ".join([table.to_string() for table in brief_tables])
-        
-        query = brief_text + " " + additional_details
+    if project_brief:
+        query = project_brief + " " + additional_details
         
         recommendations = recommend_furniture(query, catalogs)
         
         st.subheader("Recommendations:")
         st.write(recommendations)
     else:
-        st.error("Please upload a project brief.")
+        st.error("Please enter a project brief.")
 
 # Option to view catalog contents
 if st.checkbox("Show catalog contents"):
