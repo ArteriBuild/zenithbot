@@ -7,6 +7,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 def load_data():
     # Adjust the file path as needed
     df = pd.read_excel('catalogs/furniture_catalog.xlsx')
+    # Remove any unnamed columns
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
     return df
 
 # Load the data
@@ -23,7 +25,7 @@ def recommend_furniture(query):
     descriptions.append(query)
     
     # Vectorize the descriptions
-    vectorizer = TfidfVectorizer()
+    vectorizer = TfidfVectorizer(stop_words='english')
     tfidf_matrix = vectorizer.fit_transform(descriptions)
     
     # Compute similarity between query and all products
@@ -49,9 +51,10 @@ if st.button("Generate Recommendations"):
         st.subheader("Recommendations:")
         if not recommendations.empty:
             for _, rec in recommendations.iterrows():
+                st.write("**Product Details:**")
                 for col in rec.index:
                     if col != 'combined_text':
-                        st.write(f"**{col}:** {rec[col]}")
+                        st.write(f"- {col}: {rec[col]}")
                 st.write("---")
         else:
             st.write("No specific recommendations found. Please try adjusting your project brief.")
