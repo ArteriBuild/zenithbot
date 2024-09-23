@@ -1,71 +1,58 @@
 import streamlit as st
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import requests
+from io import StringIO
 
+# Function to load data from the URL
 @st.cache_data
-def load_data():
-    # Adjust the file path as needed
-    df = pd.read_excel('catalogs/furniture_catalog.xlsx')
-    # Remove any unnamed columns
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    # Rename columns if they don't have names
-    df.columns = ['Document ID', 'Description'] if len(df.columns) == 2 else df.columns
-    return df
+def load_data(url):
+    response = requests.get(url)
+    if 'text/csv' in response.headers.get('Content-Type', ''):
+        data = StringIO(response.text)
+        df = pd.read_csv(data, sep='\t')
+        return df
+    else:
+        return None
+
+# Function to search products based on user query
+def search_products(df, query):
+    query = query.lower()
+    matches = df[df.apply(lambda row: query in ' '.join(row.astype(str).values).lower(), axis=1)]
+    return matches
 
 # Load the data
-df = load_data()
+url = "https://claude.site/artifacts/468bee8b-00e4-42bc-85d8-7164ad07eaf1"
+df = load_data(url)
 
-def recommend_furniture(query):
-    # Convert all columns to string type and combine for vectorization
-    df['combined_text'] = df.apply(lambda row: ' '.join(str(val) for val in row if pd.notna(val)), axis=1)
-    
-    # Create a list of product descriptions
-    descriptions = df['combined_text'].tolist()
-    
-    # Add the query to the list of descriptions
-    descriptions.append(query)
-    
-    # Vectorize the descriptions
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform(descriptions)
-    
-    # Compute similarity between query and all products
-    query_vec = tfidf_matrix[-1]
-    cosine_similarities = cosine_similarity(query_vec, tfidf_matrix[:-1]).flatten()
-    
-    # Get top 5 most similar products
-    top_indices = cosine_similarities.argsort()[-5:][::-1]
-    
-    return df.iloc[top_indices]
+# Streamlit app
+st.title("Product Catalog Search")
 
-st.title("Furniture Recommendation App")
+if df is not None:
+    # User input
+    user_query = st.text_input("Enter your product search query:")
 
-st.subheader("Available Catalog:")
-st.write(f"Furniture catalog with {len(df)} items")
-
-project_brief = st.text_area("Enter your project brief and requirements", height=200)
-
-if st.button("Generate Recommendations"):
-    if project_brief:
-        recommendations = recommend_furniture(project_brief)
+    if user_query:
+        # Search for products
+        results = search_products(df, user_query)
         
-        st.subheader("Recommendations:")
-        if not recommendations.empty:
-            for _, rec in recommendations.iterrows():
-                st.write("**Product Details:**")
-                for col in rec.index:
-                    if col != 'combined_text':
-                        st.write(f"- {col}: {rec[col]}")
+        # Display results
+        st.subheader("Matching Products:")
+        if not results.empty:
+            for _, product in results.iterrows():
                 st.write("---")
+                for col in df.columns:
+                    if pd.notna(product[col]):
+                        st.write(f"**{col}:** {product[col]}")
         else:
-            st.write("No specific recommendations found. Please try adjusting your project brief.")
-    else:
-        st.error("Please enter a project brief.")
+            st.write("No matching products found.")
 
-if st.checkbox("Show catalog contents"):
-    st.dataframe(df)
+    # Option to view all data
+    if st.checkbox("Show all catalog data"):
+        st.write(df)
 
-# Display column names for debugging
-st.subheader("Column Names in Excel File:")
-st.write(df.columns.tolist())
+    # Display column names
+    st.subheader("Available Product Information:")
+    st.write(", ".join(df.columns))
+
+else:
+    st.error("Unable to retrieve product catalog data. The data source may be unavailable or in an unexpected format. Please try again later or contact support.")
